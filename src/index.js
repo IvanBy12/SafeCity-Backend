@@ -1,11 +1,27 @@
-require("dotenv").config()
-const express = require("express")
-const cors = require("cors")
-const { connectDB } = require("./db")
+import "dotenv/config"
+import express from "express"
+import cors from "cors"
+
+import meRoutes from "./routes/me.js"
+import incidentsRoutes from "./routes/incidents.js"
+import { connectDB } from "./db.js"
+import { initFirebaseAdmin } from "./middleware/auth.js"
+import authregister from "./routes/auth.js"
+import adminRoutes from "./routes/admin.js"
+
+
 
 const app = express()
 app.use(cors())
 app.use(express.json())
+
+initFirebaseAdmin()
+
+app.use(meRoutes)
+app.use("/incidents", incidentsRoutes)
+app.use( authregister)
+app.use("/admin", adminRoutes)
+
 
 app.get("/", (_, res) => res.send("SafeCity API OK ✅"))
 
