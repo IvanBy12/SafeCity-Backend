@@ -57,7 +57,6 @@ router.post("/auth/register", async (req, res) => {
   }
 })
 
-
 router.post("/auth/login", async (req, res) => {
   const { email, password } = req.body
   if (!email || !password) return res.status(400).json({ message: "email y password requeridos" })
@@ -83,6 +82,5 @@ router.post("/auth/login", async (req, res) => {
     expiresIn: data.expiresIn,
   })
 })
-
 
 export default router

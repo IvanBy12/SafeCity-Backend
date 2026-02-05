@@ -148,7 +148,6 @@ export async function addComment(req, res) {
     text: text.trim(),
   })
 
-  // Incrementa contador en Incident
   await Incident.updateOne({ _id: incidentId }, { $inc: { commentsCount: 1 } })
 
   return res.json({ ok: true })
@@ -163,7 +162,6 @@ export async function voteIncident(req, res) {
 
   const incidentId = new mongoose.Types.ObjectId(id)
 
-  // Upsert voto único por (incidentId + uid)
   const result = await IncidentValidation.updateOne(
     { incidentId, uid },
     {
@@ -173,8 +171,6 @@ export async function voteIncident(req, res) {
     { upsert: true }
   )
 
-  // Si fue insert nuevo y vote=true => incrementa confirmationsCount
-  // (si quieres recalcular exacto, lo hacemos con aggregate; esto es rápido)
   if (result.upsertedCount === 1 && vote === true) {
     await Incident.updateOne({ _id: incidentId }, { $inc: { confirmationsCount: 1 } })
   }

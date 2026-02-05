@@ -7,7 +7,6 @@ import incidentsRoutes from "./routes/incidents.js"
 import authRoutes from "./routes/auth.js"
 import adminRoutes from "./routes/admin.js"
 
-// ✅ NUEVO: reportes (monthly_reports)
 import reportsRoutes from "./routes/reports.js"
 
 import { connectDB } from "./db.js"
