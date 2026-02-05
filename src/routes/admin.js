@@ -1,27 +1,37 @@
 import express from "express"
-import { initFirebaseAdmin } from "../firebaseAdmin.js"
-import { requireAuth } from "../middleware/requireAuth.js"
-
-
+import { initFirebaseAdmin, requireAuth, requireAdmin } from "../middleware/auth.js"
+import User from "../models/User.js"
 
 const router = express.Router()
 
-// Solo deja usarlo si quien llama YA es admin
-function requireRole(role) {
-  return (req, res, next) => {
-    if (req.user?.role !== role) return res.status(403).json({ message: "Sin permisos" })
-    next()
-  }
-}
 
-router.post("/admin/set-role", requireAuth, requireRole("admin"), async (req, res) => {
+
+router.post("/set-role", requireAuth, requireAdmin, async (req, res) => {
   const { uid, role } = req.body
   if (!uid || !role) return res.status(400).json({ message: "uid y role son requeridos" })
+  const normalizedRole = role === "admin" ? "admin" : "user"
+
+  await User.findOneAndUpdate(
+    { firebaseUid: uid },
+    {
+      $set: {
+        role: normalizedRole,
+        status: "active",
+      },
+      $setOnInsert: {
+        firebaseUid: uid,
+      },
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  )
 
   const admin = initFirebaseAdmin()
-  await admin.auth().setCustomUserClaims(uid, { role })
+  await admin.auth().setCustomUserClaims(uid, {
+    role: normalizedRole,
+    admin: normalizedRole === "admin",
+  })
 
-  res.json({ ok: true, uid, role })
+  res.json({ ok: true, uid, role: normalizedRole })
 })
 
 export default router
