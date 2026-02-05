@@ -119,3 +119,13 @@ export async function runMonthlyReports(req, res) {
 
   return res.json({ ok: true, month, analyticsUpserts: rows.length, totals })
 }
+
+
+export async function getMonthlyReport(req, res) {
+  const month = req.query.month || new Date().toISOString().slice(0, 7)
+  const report = await MonthlyReport.findOne({ month }).lean()
+
+  if (!report) return res.status(404).json({ message: "Reporte mensual no encontrado", month })
+
+  return res.json({ ok: true, report })
+}
