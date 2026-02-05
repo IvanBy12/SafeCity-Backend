@@ -1,27 +1,21 @@
-import { MongoClient } from "mongodb"
+import mongoose from "mongoose"
 import "dotenv/config"
 
 const uri = process.env.MONGODB_URI
 if (!uri) throw new Error("Falta MONGODB_URI en .env")
 
-const dbName = process.env.MONGODB_DB || "myapp"
-
-let client
-let db
+let connectionPromise
 
 export async function connectDB() {
-  if (db) return db // ✅ evita reconectar en cada restart
+ if (mongoose.connection.readyState === 1) return mongoose.connection
+if (!connectionPromise) {
+    connectionPromise = mongoose.connect(uri, {
+      dbName: process.env.MONGODB_DB || undefined,
+    })
+  }
 
-  client = new MongoClient(uri)
-  await client.connect()
+  await connectionPromise
+  console.log("✅ MongoDB conectado con Mongoose")
+  return mongoose.connection
 
-  db = client.db(dbName)
-  console.log("✅ MongoDB conectado a:", dbName)
-
-  return db
-}
-
-export function getDb() {
-  if (!db) throw new Error("DB no inicializada. Llama connectDB() primero.")
-  return db
 }
