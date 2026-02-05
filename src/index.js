@@ -1,7 +1,7 @@
 import "dotenv/config"
 import express from "express"
 import cors from "cors"
-
+import authBootstrapRoutes from "./routes/authBootstrap.js"
 import meRoutes from "./routes/me.js"
 import incidentsRoutes from "./routes/incidents.js"
 import authRoutes from "./routes/auth.js"
