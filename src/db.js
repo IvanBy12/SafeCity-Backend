@@ -4,7 +4,7 @@ import "dotenv/config"
 const uri = process.env.MONGODB_URI
 if (!uri) throw new Error("Falta MONGODB_URI en .env")
 
-const dbName = process.env.MONGODB_DB || "safecity"
+const dbName = process.env.MONGODB_DB || "myapp"
 
 let client
 let db

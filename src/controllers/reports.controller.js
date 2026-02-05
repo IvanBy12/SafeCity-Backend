@@ -1,5 +1,5 @@
 import Incident from "../models/incident.js"
-import AnalyticsMonthly from "../models/AnalyticsMonthly.js"
+import AnalyticsMonthly from "../models/AnaliticsMonthly.js"
 import MonthlyReport from "../models/MonthlyReport.js"
 
 const TZ = "America/Bogota"
