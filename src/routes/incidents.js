@@ -1,26 +1,21 @@
 import { Router } from "express"
 import { requireAuth } from "../middleware/auth.js"
-import { getDb } from "../db.js"
+
+import {
+  createIncident,
+  addComment,
+  voteIncident,
+} from "../controllers/incidentController.js"
 
 const router = Router()
 
 // POST /incidents
-router.post("/", requireAuth, async (req, res) => {
-  try {
-    const db = getDb()
-    const incident = req.body
+router.post("/", requireAuth, createIncident)
 
-    // opcional: amarrar el incidente al uid
-    incident.userId = req.user.uid
-    incident.createdAt = new Date()
+// POST /incidents/:id/comments
+router.post("/:id/comments", requireAuth, addComment)
 
-    const result = await db.collection("incidents").insertOne(incident)
-
-    res.status(201).json({ ok: true, id: result.insertedId })
-  } catch (e) {
-    console.error(e)
-    res.status(500).json({ message: "Error creando incidente", error: e.message })
-  }
-})
+// POST /incidents/:id/votes
+router.post("/:id/votes", requireAuth, voteIncident)
 
 export default router
