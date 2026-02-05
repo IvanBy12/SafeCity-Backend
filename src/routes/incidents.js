@@ -5,17 +5,18 @@ import {
   createIncident,
   addComment,
   voteIncident,
+  listIncidents,
+  listNearbyIncidents,
+  getIncidentDetail,
 } from "../controllers/incidentController.js"
 
 const router = Router()
 
-// POST /incidents
+router.get("/", requireAuth, listIncidents)
+router.get("/near", requireAuth, listNearbyIncidents)
+router.get("/:id", requireAuth, getIncidentDetail)
 router.post("/", requireAuth, createIncident)
-
-// POST /incidents/:id/comments
 router.post("/:id/comments", requireAuth, addComment)
-
-// POST /incidents/:id/votes
 router.post("/:id/votes", requireAuth, voteIncident)
 
 export default router

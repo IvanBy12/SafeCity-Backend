@@ -3,6 +3,16 @@ import Incident from "../models/incident.js"
 import IncidentComment from "../models/IncidentComment.js"
 import IncidentValidation from "../models/IncidentValidation.js"
 
+function parsePaging(query) {
+  const page = Math.max(Number(query.page) || 1, 1)
+  const limit = Math.min(Math.max(Number(query.limit) || 20, 1), 100)
+  return { page, limit, skip: (page - 1) * limit }
+}
+
+function safeReporter(uid, isAnonymous) {
+  return isAnonymous ? null : uid
+}
+
 export async function createIncident(req, res) {
   const uid = req.user.uid
   const {
@@ -22,7 +32,15 @@ export async function createIncident(req, res) {
   }
 
   const eventDate = new Date(eventAt)
-  const editableUntil = new Date(eventDate.getTime() + 1000 * 60 * 15) // 15 min (ajústalo)
+  const editableUntil = new Date(eventDate.getTime() + 1000 * 60 * 15)
+
+  const normalizedLocation =
+    location?.type === "Point" && Array.isArray(location?.coordinates)
+      ? location
+      : location?.lat != null && location?.lng != null
+        ? { type: "Point", coordinates: [Number(location.lng), Number(location.lat)] }
+        : null
+
 
   const doc = await Incident.create({
     categoryGroup,
@@ -33,7 +51,7 @@ export async function createIncident(req, res) {
     reporterUid: uid,
     isAnonymous: !!isAnonymous,
     locality: locality || null,
-    location: location || null,
+    location: normalizedLocation,
     eventAt: eventDate,
     editableUntil,
     confirmationsCount: 0,
@@ -43,6 +61,76 @@ export async function createIncident(req, res) {
 
   return res.status(201).json({ ok: true, incident: doc })
 }
+
+export async function listIncidents(req, res) {
+  const { page, limit, skip } = parsePaging(req.query)
+  const { locality, categoryGroup } = req.query
+
+  const filter = {}
+  if (locality) filter.locality = locality
+  if (categoryGroup) filter.categoryGroup = categoryGroup
+
+  const [items, total] = await Promise.all([
+    Incident.find(filter).sort({ eventAt: -1 }).skip(skip).limit(limit).lean(),
+    Incident.countDocuments(filter),
+  ])
+
+  return res.json({ ok: true, page, limit, total, items })
+}
+
+export async function getIncidentDetail(req, res) {
+  const { id } = req.params
+  if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).json({ message: "id inválido" })
+
+  const incidentId = new mongoose.Types.ObjectId(id)
+
+  const [incident, comments, votes] = await Promise.all([
+    Incident.findById(incidentId).lean(),
+    IncidentComment.find({ incidentId }).sort({ createdAt: -1 }).lean(),
+    IncidentValidation.find({ incidentId }).lean(),
+  ])
+
+  if (!incident) return res.status(404).json({ message: "Incidente no encontrado" })
+
+  const maskedComments = comments.map((c) => ({
+    ...c,
+    authorUid: safeReporter(c.authorUid, c.isAnonymous),
+  }))
+
+  const maskedVotes = votes
+
+  return res.json({
+    ok: true,
+    incident: { ...incident, reporterUid: safeReporter(incident.reporterUid, incident.isAnonymous) },
+    comments: maskedComments,
+    votes: maskedVotes,
+  })
+}
+
+export async function listNearbyIncidents(req, res) {
+  const lat = Number(req.query.lat)
+  const lng = Number(req.query.lng)
+  const radiusM = Number(req.query.radiusM || 1000)
+
+  if (Number.isNaN(lat) || Number.isNaN(lng)) {
+    return res.status(400).json({ message: "lat y lng son obligatorios" })
+  }
+
+  const items = await Incident.find({
+    location: {
+      $near: {
+        $geometry: { type: "Point", coordinates: [lng, lat] },
+        $maxDistance: radiusM,
+      },
+    },
+  })
+    .sort({ eventAt: -1 })
+    .limit(100)
+    .lean()
+
+  return res.json({ ok: true, total: items.length, items })
+}
+
 
 export async function addComment(req, res) {
   const uid = req.user.uid
