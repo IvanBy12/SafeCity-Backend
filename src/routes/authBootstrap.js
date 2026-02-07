@@ -1,6 +1,6 @@
 import { Router } from "express"
 import { requireAuth } from "../middleware/auth.js"
-import User from "../models/User.js"
+import user from "../models/User.js"
 
 const router = Router()
 
@@ -9,7 +9,7 @@ router.post("/auth/bootstrap", requireAuth, async (req, res) => {
   const { displayName, photoUrl } = req.body || {}
   const now = new Date()
 
-    const User = await User.findOneAndUpdate(
+    const User = await user.findOneAndUpdate(
     { firebaseUid: uid },
     {
       $set: {
