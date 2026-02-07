@@ -220,17 +220,85 @@ export async function addComment(req, res) {
     text: text.trim(),
   })
 
-  await Incident.updateOne({ _id: incidentId }, { $inc: { commentsCount: 1 } })
+  await Incident.updateOne(
+    { _id: incidentId }, 
+    { $inc: { commentsCount: 1 } }
+  )
 
-  return res.json({ ok: true })
+  return res.json({ success: true })
 }
 
+// 🆕 CONFIRMAR INCIDENTE (validación comunitaria con auto-verificación)
+export async function confirmIncident(req, res) {
+  const uid = req.user.uid
+  const { id } = req.params
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ 
+      success: false,
+      message: "ID inválido" 
+    })
+  }
+
+  try {
+    const incident = await Incident.findById(id)
+    
+    if (!incident) {
+      return res.status(404).json({ 
+        success: false,
+        message: "Incidente no encontrado" 
+      })
+    }
+
+    // Verificar si ya confirmó
+    if (incident.confirmedBy && incident.confirmedBy.includes(uid)) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Ya confirmaste este incidente" 
+      })
+    }
+
+    // Agregar confirmación
+    if (!incident.confirmedBy) {
+      incident.confirmedBy = []
+    }
+    incident.confirmedBy.push(uid)
+    incident.confirmationsCount = incident.confirmedBy.length
+
+    // Auto-verificar con 3+ confirmaciones
+    if (incident.confirmationsCount >= 3) {
+      incident.verified = true
+    }
+
+    await incident.save()
+
+    return res.json({ 
+      success: true,
+      data: {
+        confirmations: incident.confirmationsCount,
+        verified: incident.verified
+      }
+    })
+  } catch (error) {
+    return res.status(500).json({ 
+      success: false,
+      message: error.message 
+    })
+  }
+}
+
+// ✅ VOTAR INCIDENTE (mantener compatibilidad)
 export async function voteIncident(req, res) {
   const uid = req.user.uid
   const { id } = req.params
   const { vote, comment } = req.body
 
-  if (typeof vote !== "boolean") return res.status(400).json({ message: "vote debe ser boolean" })
+  if (typeof vote !== "boolean") {
+    return res.status(400).json({ 
+      success: false,
+      message: "vote debe ser boolean" 
+    })
+  }
 
   const incidentId = new mongoose.Types.ObjectId(id)
 
@@ -243,9 +311,77 @@ export async function voteIncident(req, res) {
     { upsert: true }
   )
 
+  // Si es un voto nuevo positivo, incrementar contador
   if (result.upsertedCount === 1 && vote === true) {
-    await Incident.updateOne({ _id: incidentId }, { $inc: { confirmationsCount: 1 } })
+    await Incident.updateOne(
+      { _id: incidentId }, 
+      { $inc: { confirmationsCount: 1 } }
+    )
   }
 
-  return res.json({ ok: true })
+  return res.json({ success: true })
+}
+
+// 🆕 ELIMINAR INCIDENTE (solo el creador)
+export async function deleteIncident(req, res) {
+  const uid = req.user.uid
+  const { id } = req.params
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ 
+      success: false,
+      message: "ID inválido" 
+    })
+  }
+
+  const incident = await Incident.findById(id)
+  
+  if (!incident) {
+    return res.status(404).json({ 
+      success: false,
+      message: "Incidente no encontrado" 
+    })
+  }
+
+  // Verificar que el usuario sea el creador
+  if (incident.reporterUid !== uid) {
+    return res.status(403).json({ 
+      success: false,
+      message: "Solo puedes eliminar tus propios reportes" 
+    })
+  }
+
+  await incident.deleteOne()
+
+  return res.json({ 
+    success: true,
+    message: "Incidente eliminado exitosamente" 
+  })
+}
+
+// 🆕 ESTADÍSTICAS GENERALES
+export async function getStats(req, res) {
+  try {
+    const totalIncidents = await Incident.countDocuments()
+    const verifiedIncidents = await Incident.countDocuments({ verified: true })
+    const byType = await Incident.aggregate([
+      { $group: { _id: "$type", count: { $sum: 1 } } }
+    ])
+
+    const stats = {
+      total: totalIncidents,
+      verified: verifiedIncidents,
+      byType: Object.fromEntries(byType.map(t => [t._id, t.count]))
+    }
+
+    return res.json({ 
+      success: true,
+      data: stats 
+    })
+  } catch (error) {
+    return res.status(500).json({ 
+      success: false,
+      message: error.message 
+    })
+  }
 }
