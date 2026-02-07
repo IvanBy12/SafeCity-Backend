@@ -175,54 +175,41 @@ export async function getIncidentDetail(req, res) {
     IncidentValidation.find({ incidentId }).lean(),
   ])
 
-  if (!incident) return res.status(404).json({ message: "Incidente no encontrado" })
+  if (!incident) {
+    return res.status(404).json({ 
+      success: false,
+      message: "Incidente no encontrado" 
+    })
+  }
 
   const maskedComments = comments.map((c) => ({
     ...c,
     authorUid: safeReporter(c.authorUid, c.isAnonymous),
   }))
 
-  const maskedVotes = votes
-
   return res.json({
-    ok: true,
-    incident: { ...incident, reporterUid: safeReporter(incident.reporterUid, incident.isAnonymous) },
-    comments: maskedComments,
-    votes: maskedVotes,
+    success: true,
+    data: {
+      ...incident,
+      reporterUid: safeReporter(incident.reporterUid, incident.isAnonymous),
+      comments: maskedComments,
+      votes,
+    }
   })
 }
 
-export async function listNearbyIncidents(req, res) {
-  const lat = Number(req.query.lat)
-  const lng = Number(req.query.lng)
-  const radiusM = Number(req.query.radiusM || 1000)
-
-  if (Number.isNaN(lat) || Number.isNaN(lng)) {
-    return res.status(400).json({ message: "lat y lng son obligatorios" })
-  }
-
-  const items = await Incident.find({
-    location: {
-      $near: {
-        $geometry: { type: "Point", coordinates: [lng, lat] },
-        $maxDistance: radiusM,
-      },
-    },
-  })
-    .sort({ eventAt: -1 })
-    .limit(100)
-    .lean()
-
-  return res.json({ ok: true, total: items.length, items })
-}
-
-
+// ✅ AGREGAR COMENTARIO
 export async function addComment(req, res) {
   const uid = req.user.uid
   const { id } = req.params
   const { text, isAnonymous } = req.body
 
-  if (!text?.trim()) return res.status(400).json({ message: "text es obligatorio" })
+  if (!text?.trim()) {
+    return res.status(400).json({ 
+      success: false,
+      message: "text es obligatorio" 
+    })
+  }
 
   const incidentId = new mongoose.Types.ObjectId(id)
 
