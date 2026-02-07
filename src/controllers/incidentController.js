@@ -13,6 +13,7 @@ function safeReporter(uid, isAnonymous) {
   return isAnonymous ? null : uid
 }
 
+// ✅ CREAR INCIDENTE (compatible con Android)
 export async function createIncident(req, res) {
   const uid = req.user.uid
   const {
@@ -22,25 +23,44 @@ export async function createIncident(req, res) {
     description,
     isAnonymous,
     locality,
-    location,
+    location,      // GeoJSON completo
+    latitude,      // 🆕 O lat/lng directo
+    longitude,     // 🆕
+    address,       // 🆕
+    imageUrl,      // 🆕
+    photos,        // 🆕
     eventAt,
-    photos,
   } = req.body
 
-  if (!categoryGroup || !type || !title || !eventAt) {
-    return res.status(400).json({ message: "categoryGroup, type, title y eventAt son obligatorios" })
+  if (!categoryGroup || !type || !title) {
+    return res.status(400).json({ 
+      success: false,
+      message: "categoryGroup, type y title son obligatorios" 
+    })
   }
 
-  const eventDate = new Date(eventAt)
+  const eventDate = eventAt ? new Date(eventAt) : new Date()
   const editableUntil = new Date(eventDate.getTime() + 1000 * 60 * 15)
 
-  const normalizedLocation =
-    location?.type === "Point" && Array.isArray(location?.coordinates)
-      ? location
-      : location?.lat != null && location?.lng != null
-        ? { type: "Point", coordinates: [Number(location.lng), Number(location.lat)] }
-        : null
-
+  // 🆕 Normalizar location: acepta GeoJSON, lat/lng o {lat, lng}
+  let normalizedLocation = null
+  
+  if (location?.type === "Point" && Array.isArray(location?.coordinates)) {
+    // GeoJSON directo
+    normalizedLocation = location
+  } else if (latitude != null && longitude != null) {
+    // Lat/lng desde Android
+    normalizedLocation = {
+      type: "Point",
+      coordinates: [Number(longitude), Number(latitude)]
+    }
+  } else if (location?.lat != null && location?.lng != null) {
+    // Objeto {lat, lng}
+    normalizedLocation = {
+      type: "Point",
+      coordinates: [Number(location.lng), Number(location.lat)]
+    }
+  }
 
   const doc = await Incident.create({
     categoryGroup,
@@ -52,35 +72,100 @@ export async function createIncident(req, res) {
     isAnonymous: !!isAnonymous,
     locality: locality || null,
     location: normalizedLocation,
+    address: address || null,        // 🆕
+    imageUrl: imageUrl || null,      // 🆕
+    photos: Array.isArray(photos) ? photos : [], // 🆕
     eventAt: eventDate,
     editableUntil,
     confirmationsCount: 0,
     commentsCount: 0,
-    photos: Array.isArray(photos) ? photos : [],
+    verified: false,                 // 🆕
+    confirmedBy: [],                 // 🆕
   })
 
-  return res.status(201).json({ ok: true, incident: doc })
+  return res.status(201).json({ 
+    success: true, 
+    data: doc 
+  })
 }
 
+// ✅ LISTAR INCIDENTES (con filtros Android)
 export async function listIncidents(req, res) {
   const { page, limit, skip } = parsePaging(req.query)
-  const { locality, categoryGroup } = req.query
+  const { locality, categoryGroup, type, verified } = req.query
 
   const filter = {}
   if (locality) filter.locality = locality
   if (categoryGroup) filter.categoryGroup = categoryGroup
+  if (type) filter.type = type
+  if (verified !== undefined) filter.verified = verified === 'true'
 
   const [items, total] = await Promise.all([
-    Incident.find(filter).sort({ eventAt: -1 }).skip(skip).limit(limit).lean(),
+    Incident.find(filter)
+      .sort({ eventAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
     Incident.countDocuments(filter),
   ])
 
-  return res.json({ ok: true, page, limit, total, items })
+  return res.json({ 
+    success: true, 
+    page, 
+    limit, 
+    total, 
+    count: items.length,
+    data: items 
+  })
 }
 
+// ✅ INCIDENTES CERCANOS (geoespacial)
+export async function listNearbyIncidents(req, res) {
+  const lat = Number(req.query.lat)
+  const lng = Number(req.query.lng)
+  const radiusKm = Number(req.query.radius || 5)
+  const radiusM = Number(req.query.radiusM || radiusKm * 1000)
+
+  if (Number.isNaN(lat) || Number.isNaN(lng)) {
+    return res.status(400).json({ 
+      success: false,
+      message: "lat y lng son obligatorios" 
+    })
+  }
+
+  // 🆕 Búsqueda geoespacial con $near
+  const items = await Incident.find({
+    location: {
+      $near: {
+        $geometry: {
+          type: "Point",
+          coordinates: [lng, lat]
+        },
+        $maxDistance: radiusM
+      }
+    }
+  })
+    .sort({ eventAt: -1 })
+    .limit(100)
+    .lean()
+
+  return res.json({ 
+    success: true, 
+    total: items.length, 
+    count: items.length,
+    data: items 
+  })
+}
+
+// ✅ DETALLE DE INCIDENTE
 export async function getIncidentDetail(req, res) {
   const { id } = req.params
-  if (!mongoose.Types.ObjectId.isValid(id)) return res.status(400).json({ message: "id inválido" })
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ 
+      success: false,
+      message: "ID inválido" 
+    })
+  }
 
   const incidentId = new mongoose.Types.ObjectId(id)
 
