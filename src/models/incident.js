@@ -10,6 +10,11 @@ const IncidentSchema = new mongoose.Schema(
     reporterUid: { type: String, required: true, index: true },
     isAnonymous: { type: Boolean, default: false },
     locality: { type: String, index: true },
+    //nuevo mi rey OJO CON ESTO 
+    address: { type: String, default: null },
+    verified: { type: Boolean, default: false, index: true },
+    confirmedBy: { type: [String], default: [] },
+    //aca esta lo nuevo
     location: {
       type: {
         type: String,
@@ -32,6 +37,45 @@ const IncidentSchema = new mongoose.Schema(
   { timestamps: true }
 )
 IncidentSchema.index({ location: "2dsphere" })
+
+// 🆕 MÉTODO ESTÁTICO: Buscar cercanos
+IncidentSchema.statics.findNearby = function(longitude, latitude, maxDistanceKm = 5) {
+  return this.find({
+    location: {
+      $near: {
+        $geometry: {
+          type: 'Point',
+          coordinates: [longitude, latitude]
+        },
+        $maxDistance: maxDistanceKm * 1000
+      }
+    }
+  })
+}
+
+
+IncidentSchema.methods.confirmBy = async function(userId) {
+  if (this.confirmedBy.includes(userId)) {
+    throw new Error('Ya confirmaste este incidente')
+  }
+  
+  this.confirmedBy.push(userId)
+  this.confirmationsCount = this.confirmedBy.length
+  
+  if (this.confirmationsCount >= 3) {
+    this.verified = true
+  }
+  
+  return this.save()
+}
+
+// 🆕 VIRTUAL: timestamp
+IncidentSchema.virtual('timestamp').get(function() {
+  return this.eventAt ? this.eventAt.getTime() : Date.now()
+})
+
+IncidentSchema.set('toJSON', { virtuals: true })
+IncidentSchema.set('toObject', { virtuals: true })
 
 
 export default mongoose.model("Incident", IncidentSchema)
