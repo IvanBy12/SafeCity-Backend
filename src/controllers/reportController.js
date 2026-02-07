@@ -125,5 +125,5 @@ export async function runMonthlyReports(req, res) {
     { upsert: true }
   )
 
-  return res.json({ ok: true, month, analyticsInserted: rows.length, reportTotals: totals })
+  return res.json({ ok: true, data: { month, analyticsInserted: rows.length, reportTotals: totals } })
 }

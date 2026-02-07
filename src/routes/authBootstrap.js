@@ -27,7 +27,7 @@ router.post("/auth/bootstrap", requireAuth, async (req, res) => {
     { upsert: true, new: true, setDefaultsOnInsert: true }
   ).lean()
 
-  return res.json({ ok: true, user })
+  return res.json({ ok: true, data: User })
 })
 
 export default router
