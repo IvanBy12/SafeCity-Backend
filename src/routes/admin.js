@@ -31,7 +31,7 @@ router.post("/set-role", requireAuth, requireAdmin, async (req, res) => {
     admin: normalizedRole === "admin",
   })
 
-  res.json({ ok: true, uid, role: normalizedRole })
+  res.json({ ok: true, data: { uid, role: normalizedRole } })
 })
 
 export default router

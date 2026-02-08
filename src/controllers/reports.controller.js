@@ -127,5 +127,5 @@ export async function getMonthlyReport(req, res) {
 
   if (!report) return res.status(404).json({ message: "Reporte mensual no encontrado", month })
 
-  return res.json({ ok: true, report })
+  return res.json({ ok: true, data: report })
 }

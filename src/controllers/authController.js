@@ -61,5 +61,5 @@ export async function startSession(req, res) {
     revokedAt: null,
   })
 
-  return res.json({ ok: true, uid, sessionId, expiresAt })
+  return res.json({ ok: true, data: { uid, sessionId, expiresAt } })
 }
