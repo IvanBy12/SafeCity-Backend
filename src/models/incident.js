@@ -57,23 +57,23 @@ IncidentSchema.statics.findNearby = function (longitude, latitude, maxDistanceKm
 }
 
 
-IncidentSchema.methods.confirmBy = async function(userId) {
+IncidentSchema.methods.confirmBy = async function (userId) {
   if (this.confirmedBy.includes(userId)) {
     throw new Error('Ya confirmaste este incidente')
   }
-  
+
   this.confirmedBy.push(userId)
   this.confirmationsCount = this.confirmedBy.length
-  
+
   if (this.confirmationsCount >= 3) {
     this.verified = true
   }
-  
+
   return this.save()
 }
 
 // 🆕 VIRTUAL: timestamp
-IncidentSchema.virtual('timestamp').get(function() {
+IncidentSchema.virtual('timestamp').get(function () {
   return this.eventAt ? this.eventAt.getTime() : Date.now()
 })
 
