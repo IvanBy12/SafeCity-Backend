@@ -266,62 +266,45 @@ export async function addComment(req, res) {
   return res.json({ success: true })
 }
 
-// 🆕 CONFIRMAR INCIDENTE (validación comunitaria con auto-verificación)
+//  CONFIRMAR INCIDENTE (validación comunitaria con auto-verificación)
+//  ACTUALIZAR: Agregar validación de duplicados
 export async function confirmIncident(req, res) {
-  const uid = req.user.uid
-  const { id } = req.params
-
-  if (!mongoose.Types.ObjectId.isValid(id)) {
-    return res.status(400).json({ 
-      success: false,
-      message: "ID inválido" 
-    })
-  }
-
   try {
+    const { id } = req.params
+    const userId = req.user.uid
+
     const incident = await Incident.findById(id)
-    
     if (!incident) {
-      return res.status(404).json({ 
-        success: false,
-        message: "Incidente no encontrado" 
-      })
+      return res.status(404).json({ error: "Incidente no encontrado" })
     }
 
-    // Verificar si ya confirmó
-    if (incident.confirmedBy && incident.confirmedBy.includes(uid)) {
+    // ✅ NUEVO: Verificar si ya confirmó
+    if (incident.confirmedBy.includes(userId)) {
       return res.status(400).json({ 
-        success: false,
-        message: "Ya confirmaste este incidente" 
+        error: "Ya confirmaste este incidente",
+        incident 
       })
     }
 
     // Agregar confirmación
-    if (!incident.confirmedBy) {
-      incident.confirmedBy = []
-    }
-    incident.confirmedBy.push(uid)
+    incident.confirmedBy.push(userId)
     incident.confirmationsCount = incident.confirmedBy.length
 
-    // Auto-verificar con 3+ confirmaciones
+    // Verificar si alcanza 3 confirmaciones
     if (incident.confirmationsCount >= 3) {
       incident.verified = true
     }
 
     await incident.save()
 
-    return res.json({ 
+    res.json({
       success: true,
-      data: {
-        confirmations: incident.confirmationsCount,
-        verified: incident.verified
-      }
+      message: "Incidente confirmado",
+      incident
     })
   } catch (error) {
-    return res.status(500).json({ 
-      success: false,
-      message: error.message 
-    })
+    console.error("Error confirmando:", error)
+    res.status(500).json({ error: "Error confirmando incidente" })
   }
 }
 
