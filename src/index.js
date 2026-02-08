@@ -44,7 +44,11 @@ console.log("ENV CHECK:", process.env.MONGODB_URI ? "✅ OK" : "❌ NO")
 
 connectDB()
   .then(() => {
-    app.listen(port, () => console.log(`🚀 http://localhost:${port}`))
+    app.listen(port,"0.0.0.0", () => {
+    console.log(`🚀 Servidor corriendo en http://0.0.0.0:${port}`)
+    console.log(`📱 Desde emulador Android: http://10.0.2.2:${port}`)
+    console.log(`💻 Desde navegador local: http://localhost:${port}`)
+    })
   })
   .catch((e) => {
     console.error("❌ DB error:", e.message)
