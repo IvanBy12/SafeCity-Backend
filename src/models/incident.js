@@ -33,13 +33,16 @@ const IncidentSchema = new mongoose.Schema(
     confirmationsCount: { type: Number, default: 0 },
     commentsCount: { type: Number, default: 0 },
     photos: { type: Array, default: [] },
+    address: { type: String, default: null },
+    verified: { type: Boolean, default: false, index: true },
+    confirmedBy: { type: [String], default: [] },
   },
   { timestamps: true }
 )
 IncidentSchema.index({ location: "2dsphere" })
 
 // 🆕 MÉTODO ESTÁTICO: Buscar cercanos
-IncidentSchema.statics.findNearby = function(longitude, latitude, maxDistanceKm = 5) {
+IncidentSchema.statics.findNearby = function (longitude, latitude, maxDistanceKm = 5) {
   return this.find({
     location: {
       $near: {
