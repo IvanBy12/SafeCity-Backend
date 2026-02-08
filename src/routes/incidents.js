@@ -6,11 +6,13 @@ import {
   addComment,
   voteIncident,
   confirmIncident,
+  unconfirmIncident,
   deleteIncident,
   listIncidents,
   listNearbyIncidents,
   getIncidentDetail,
   getStats,
+
 } from "../controllers/incidentController.js"
 
 const router = Router()
@@ -25,6 +27,7 @@ router.get("/:id", requireAuth, getIncidentDetail)
 router.post("/:id/comments", requireAuth, addComment)
 router.post("/:id/votes", requireAuth, voteIncident)
 router.put("/:id/confirm", requireAuth, confirmIncident)
+router.delete("/:id/confirm", requireAuth, unconfirmIncident)
 router.delete("/:id", requireAuth, deleteIncident)
 
 router.post("/", requireAuth, createIncident)

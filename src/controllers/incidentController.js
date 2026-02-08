@@ -89,6 +89,44 @@ export async function createIncident(req, res) {
   })
 }
 
+// ✅ NUEVO: Desconfirmar incidente
+export async function unconfirmIncident(req, res) {
+  try {
+    const { id } = req.params
+    const userId = req.user.uid
+
+    const incident = await Incident.findById(id)
+    if (!incident) {
+      return res.status(404).json({ error: "Incidente no encontrado" })
+    }
+
+    // Verificar si el usuario YA confirmó
+    if (!incident.confirmedBy.includes(userId)) {
+      return res.status(400).json({ error: "No has confirmado este incidente" })
+    }
+
+    // Remover userId de confirmedBy
+    incident.confirmedBy = incident.confirmedBy.filter(uid => uid !== userId)
+    incident.confirmationsCount = incident.confirmedBy.length
+
+    // Si baja de 3 confirmaciones, desmarcar como verificado
+    if (incident.confirmationsCount < 3) {
+      incident.verified = false
+    }
+
+    await incident.save()
+
+    res.json({
+      success: true,
+      message: "Confirmación removida",
+      incident
+    })
+  } catch (error) {
+    console.error("Error desconfirmando:", error)
+    res.status(500).json({ error: "Error desconfirmando incidente" })
+  }
+}
+
 // ✅ LISTAR INCIDENTES (con filtros Android)
 export async function listIncidents(req, res) {
   const { page, limit, skip } = parsePaging(req.query)
