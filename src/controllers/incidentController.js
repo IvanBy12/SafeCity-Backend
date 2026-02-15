@@ -13,151 +13,201 @@ function safeReporter(uid, isAnonymous) {
   return isAnonymous ? null : uid
 }
 
-// ✅ CREAR INCIDENTE (compatible con Android)
+// ========================================
+// CREAR INCIDENTE
+// ========================================
 export async function createIncident(req, res) {
   const uid = req.user.uid
   const {
-    categoryGroup,
-    type,
-    title,
-    description,
-    isAnonymous,
-    locality,
-    location,      // GeoJSON completo
-    latitude,      // 🆕 O lat/lng directo
-    longitude,     // 🆕
-    address,       // 🆕
-    imageUrl,      // 🆕
-    photos,        // 🆕
-    eventAt,
+    categoryGroup, type, title, description, isAnonymous,
+    locality, location, latitude, longitude, address,
+    imageUrl, photos, eventAt,
   } = req.body
 
   if (!categoryGroup || !type || !title) {
-    return res.status(400).json({ 
-      success: false,
-      message: "categoryGroup, type y title son obligatorios" 
-    })
+    return res.status(400).json({ success: false, message: "categoryGroup, type y title son obligatorios" })
   }
 
   const eventDate = eventAt ? new Date(eventAt) : new Date()
   const editableUntil = new Date(eventDate.getTime() + 1000 * 60 * 15)
 
-  // 🆕 Normalizar location: acepta GeoJSON, lat/lng o {lat, lng}
   let normalizedLocation = null
-  
   if (location?.type === "Point" && Array.isArray(location?.coordinates)) {
-    // GeoJSON directo
     normalizedLocation = location
   } else if (latitude != null && longitude != null) {
-    // Lat/lng desde Android
-    normalizedLocation = {
-      type: "Point",
-      coordinates: [Number(longitude), Number(latitude)]
-    }
+    normalizedLocation = { type: "Point", coordinates: [Number(longitude), Number(latitude)] }
   } else if (location?.lat != null && location?.lng != null) {
-    // Objeto {lat, lng}
-    normalizedLocation = {
-      type: "Point",
-      coordinates: [Number(location.lng), Number(location.lat)]
-    }
+    normalizedLocation = { type: "Point", coordinates: [Number(location.lng), Number(location.lat)] }
   }
 
   const doc = await Incident.create({
-    categoryGroup,
-    type,
-    title,
+    categoryGroup, type, title,
     description: description || "",
     status: "pending",
     reporterUid: uid,
     isAnonymous: !!isAnonymous,
     locality: locality || null,
     location: normalizedLocation,
-    address: address || null,        // 🆕
-    imageUrl: imageUrl || null,      // 🆕
-    photos: Array.isArray(photos) ? photos : [], // 🆕
+    address: address || null,
+    photos: Array.isArray(photos) ? photos : [],
     eventAt: eventDate,
     editableUntil,
+    // Nuevos campos de validación
+    votedTrue: [],
+    votedFalse: [],
+    validationScore: 0,
+    verified: false,
+    flaggedFalse: false,
     confirmationsCount: 0,
+    confirmedBy: [],
     commentsCount: 0,
-    verified: false,                 // 🆕
-    confirmedBy: [],                 // 🆕
   })
 
-  return res.status(201).json({ 
-    success: true, 
-    data: doc 
-  })
+  return res.status(201).json({ success: true, data: doc })
 }
 
-// ✅ NUEVO: Desconfirmar incidente
-export async function unconfirmIncident(req, res) {
+// ========================================
+// VOTAR COMO VERDADERO (confirmar)
+// ========================================
+export async function voteIncidentTrue(req, res) {
   try {
     const { id } = req.params
     const userId = req.user.uid
 
     const incident = await Incident.findById(id)
     if (!incident) {
-      return res.status(404).json({ error: "Incidente no encontrado" })
+      return res.status(404).json({ success: false, error: "Incidente no encontrado" })
     }
 
-    // Verificar si el usuario YA confirmó
-    if (!incident.confirmedBy.includes(userId)) {
-      return res.status(400).json({ error: "No has confirmado este incidente" })
-    }
-
-    // Remover userId de confirmedBy
-    incident.confirmedBy = incident.confirmedBy.filter(uid => uid !== userId)
-    incident.confirmationsCount = incident.confirmedBy.length
-
-    // Si baja de 3 confirmaciones, desmarcar como verificado
-    if (incident.confirmationsCount < 3) {
-      incident.verified = false
-    }
-
-    await incident.save()
+    await incident.voteTrue(userId)
 
     res.json({
       success: true,
-      message: "Confirmación removida",
-      incident
+      message: "Voto registrado: verdadero",
+      data: {
+        validationScore: incident.validationScore,
+        votedTrue: incident.votedTrue.length,
+        votedFalse: incident.votedFalse.length,
+        verified: incident.verified,
+        flaggedFalse: incident.flaggedFalse,
+        status: incident.status,
+      }
     })
   } catch (error) {
-    console.error("Error desconfirmando:", error)
-    res.status(500).json({ error: "Error desconfirmando incidente" })
+    console.error("Error votando verdadero:", error.message)
+    res.status(400).json({ success: false, error: error.message })
   }
 }
 
-// ✅ LISTAR INCIDENTES (con filtros Android)
+// ========================================
+// VOTAR COMO FALSO (reportar)
+// ========================================
+export async function voteIncidentFalse(req, res) {
+  try {
+    const { id } = req.params
+    const userId = req.user.uid
+
+    const incident = await Incident.findById(id)
+    if (!incident) {
+      return res.status(404).json({ success: false, error: "Incidente no encontrado" })
+    }
+
+    await incident.voteFalse(userId)
+
+    res.json({
+      success: true,
+      message: "Voto registrado: falso",
+      data: {
+        validationScore: incident.validationScore,
+        votedTrue: incident.votedTrue.length,
+        votedFalse: incident.votedFalse.length,
+        verified: incident.verified,
+        flaggedFalse: incident.flaggedFalse,
+        status: incident.status,
+      }
+    })
+  } catch (error) {
+    console.error("Error votando falso:", error.message)
+    res.status(400).json({ success: false, error: error.message })
+  }
+}
+
+// ========================================
+// QUITAR VOTO
+// ========================================
+export async function removeVote(req, res) {
+  try {
+    const { id } = req.params
+    const userId = req.user.uid
+
+    const incident = await Incident.findById(id)
+    if (!incident) {
+      return res.status(404).json({ success: false, error: "Incidente no encontrado" })
+    }
+
+    await incident.removeVote(userId)
+
+    res.json({
+      success: true,
+      message: "Voto removido",
+      data: {
+        validationScore: incident.validationScore,
+        votedTrue: incident.votedTrue.length,
+        votedFalse: incident.votedFalse.length,
+        verified: incident.verified,
+        flaggedFalse: incident.flaggedFalse,
+        status: incident.status,
+      }
+    })
+  } catch (error) {
+    console.error("Error removiendo voto:", error.message)
+    res.status(400).json({ success: false, error: error.message })
+  }
+}
+
+// ========================================
+// COMPATIBILIDAD: confirmIncident → voteTrue
+// ========================================
+export async function confirmIncident(req, res) {
+  return voteIncidentTrue(req, res)
+}
+
+// ========================================
+// COMPATIBILIDAD: unconfirmIncident → removeVote
+// ========================================
+export async function unconfirmIncident(req, res) {
+  return removeVote(req, res)
+}
+
+// ========================================
+// LISTAR INCIDENTES (excluir flaggedFalse por defecto)
+// ========================================
 export async function listIncidents(req, res) {
   const { page, limit, skip } = parsePaging(req.query)
-  const { locality, categoryGroup, type, verified } = req.query
+  const { locality, categoryGroup, type, verified, showFlagged } = req.query
 
   const filter = {}
   if (locality) filter.locality = locality
   if (categoryGroup) filter.categoryGroup = categoryGroup
   if (type) filter.type = type
-  if (verified !== undefined) filter.verified = verified === 'true'
+  if (verified !== undefined) filter.verified = verified === "true"
+
+  // Por defecto, NO mostrar reportes marcados como falsos
+  if (showFlagged !== "true") {
+    filter.flaggedFalse = { $ne: true }
+  }
 
   const [items, total] = await Promise.all([
-    Incident.find(filter)
-      .sort({ eventAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean(),
+    Incident.find(filter).sort({ eventAt: -1 }).skip(skip).limit(limit).lean(),
     Incident.countDocuments(filter),
   ])
 
-  return res.json({ 
-    success: true, 
-    page, 
-    limit, 
-    total, 
-    count: items.length,
-    data: items 
-  })
+  return res.json({ success: true, page, limit, total, count: items.length, data: items })
 }
 
-// ✅ INCIDENTES CERCANOS (geoespacial)
+// ========================================
+// INCIDENTES CERCANOS
+// ========================================
 export async function listNearbyIncidents(req, res) {
   const lat = Number(req.query.lat)
   const lng = Number(req.query.lng)
@@ -165,44 +215,29 @@ export async function listNearbyIncidents(req, res) {
   const radiusM = Number(req.query.radiusM || radiusKm * 1000)
 
   if (Number.isNaN(lat) || Number.isNaN(lng)) {
-    return res.status(400).json({ 
-      success: false,
-      message: "lat y lng son obligatorios" 
-    })
+    return res.status(400).json({ success: false, message: "lat y lng son obligatorios" })
   }
 
-  // 🆕 Búsqueda geoespacial con $near
   const items = await Incident.find({
+    flaggedFalse: { $ne: true },
     location: {
       $near: {
-        $geometry: {
-          type: "Point",
-          coordinates: [lng, lat]
-        },
-        $maxDistance: radiusM
-      }
-    }
-  })
-    .sort({ eventAt: -1 })
-    .limit(100)
-    .lean()
+        $geometry: { type: "Point", coordinates: [lng, lat] },
+        $maxDistance: radiusM,
+      },
+    },
+  }).sort({ eventAt: -1 }).limit(100).lean()
 
-  return res.json({ 
-    success: true, 
-    total: items.length, 
-    count: items.length,
-    data: items 
-  })
+  return res.json({ success: true, total: items.length, count: items.length, data: items })
 }
 
-// ✅ DETALLE DE INCIDENTE
+// ========================================
+// DETALLE DE INCIDENTE
+// ========================================
 export async function getIncidentDetail(req, res) {
   const { id } = req.params
   if (!mongoose.Types.ObjectId.isValid(id)) {
-    return res.status(400).json({ 
-      success: false,
-      message: "ID inválido" 
-    })
+    return res.status(400).json({ success: false, message: "ID inválido" })
   }
 
   const incidentId = new mongoose.Types.ObjectId(id)
@@ -214,10 +249,7 @@ export async function getIncidentDetail(req, res) {
   ])
 
   if (!incident) {
-    return res.status(404).json({ 
-      success: false,
-      message: "Incidente no encontrado" 
-    })
+    return res.status(404).json({ success: false, message: "Incidente no encontrado" })
   }
 
   const maskedComments = comments.map((c) => ({
@@ -232,21 +264,20 @@ export async function getIncidentDetail(req, res) {
       reporterUid: safeReporter(incident.reporterUid, incident.isAnonymous),
       comments: maskedComments,
       votes,
-    }
+    },
   })
 }
 
-// ✅ AGREGAR COMENTARIO
+// ========================================
+// AGREGAR COMENTARIO
+// ========================================
 export async function addComment(req, res) {
   const uid = req.user.uid
   const { id } = req.params
   const { text, isAnonymous } = req.body
 
   if (!text?.trim()) {
-    return res.status(400).json({ 
-      success: false,
-      message: "text es obligatorio" 
-    })
+    return res.status(400).json({ success: false, message: "text es obligatorio" })
   }
 
   const incidentId = new mongoose.Types.ObjectId(id)
@@ -258,72 +289,26 @@ export async function addComment(req, res) {
     text: text.trim(),
   })
 
-  await Incident.updateOne(
-    { _id: incidentId }, 
-    { $inc: { commentsCount: 1 } }
-  )
+  await Incident.updateOne({ _id: incidentId }, { $inc: { commentsCount: 1 } })
 
   return res.json({ success: true })
 }
 
-//  CONFIRMAR INCIDENTE (validación comunitaria con auto-verificación)
-//  ACTUALIZAR: Agregar validación de duplicados
-export async function confirmIncident(req, res) {
-  try {
-    const { id } = req.params
-    const userId = req.user.uid
-
-    const incident = await Incident.findById(id)
-    if (!incident) {
-      return res.status(404).json({ error: "Incidente no encontrado" })
-    }
-
-    // ✅ NUEVO: Verificar si ya confirmó
-    if (incident.confirmedBy.includes(userId)) {
-      return res.status(400).json({ 
-        error: "Ya confirmaste este incidente",
-        incident 
-      })
-    }
-
-    // Agregar confirmación
-    incident.confirmedBy.push(userId)
-    incident.confirmationsCount = incident.confirmedBy.length
-
-    // Verificar si alcanza 3 confirmaciones
-    if (incident.confirmationsCount >= 3) {
-      incident.verified = true
-    }
-
-    await incident.save()
-
-    res.json({
-      success: true,
-      message: "Incidente confirmado",
-      incident
-    })
-  } catch (error) {
-    console.error("Error confirmando:", error)
-    res.status(500).json({ error: "Error confirmando incidente" })
-  }
-}
-
-// ✅ VOTAR INCIDENTE (mantener compatibilidad)
+// ========================================
+// VOTAR (legacy - mantener compatibilidad)
+// ========================================
 export async function voteIncident(req, res) {
   const uid = req.user.uid
   const { id } = req.params
   const { vote, comment } = req.body
 
   if (typeof vote !== "boolean") {
-    return res.status(400).json({ 
-      success: false,
-      message: "vote debe ser boolean" 
-    })
+    return res.status(400).json({ success: false, message: "vote debe ser boolean" })
   }
 
   const incidentId = new mongoose.Types.ObjectId(id)
 
-  const result = await IncidentValidation.updateOne(
+  await IncidentValidation.updateOne(
     { incidentId, uid },
     {
       $set: { vote, comment: comment || "" },
@@ -332,77 +317,55 @@ export async function voteIncident(req, res) {
     { upsert: true }
   )
 
-  // Si es un voto nuevo positivo, incrementar contador
-  if (result.upsertedCount === 1 && vote === true) {
-    await Incident.updateOne(
-      { _id: incidentId }, 
-      { $inc: { confirmationsCount: 1 } }
-    )
-  }
-
   return res.json({ success: true })
 }
 
-// 🆕 ELIMINAR INCIDENTE (solo el creador)
+// ========================================
+// ELIMINAR INCIDENTE
+// ========================================
 export async function deleteIncident(req, res) {
   const uid = req.user.uid
   const { id } = req.params
 
   if (!mongoose.Types.ObjectId.isValid(id)) {
-    return res.status(400).json({ 
-      success: false,
-      message: "ID inválido" 
-    })
+    return res.status(400).json({ success: false, message: "ID inválido" })
   }
 
   const incident = await Incident.findById(id)
-  
   if (!incident) {
-    return res.status(404).json({ 
-      success: false,
-      message: "Incidente no encontrado" 
-    })
+    return res.status(404).json({ success: false, message: "Incidente no encontrado" })
   }
 
-  // Verificar que el usuario sea el creador
   if (incident.reporterUid !== uid) {
-    return res.status(403).json({ 
-      success: false,
-      message: "Solo puedes eliminar tus propios reportes" 
-    })
+    return res.status(403).json({ success: false, message: "Solo puedes eliminar tus propios reportes" })
   }
 
   await incident.deleteOne()
-
-  return res.json({ 
-    success: true,
-    message: "Incidente eliminado exitosamente" 
-  })
+  return res.json({ success: true, message: "Incidente eliminado exitosamente" })
 }
 
-// 🆕 ESTADÍSTICAS GENERALES
+// ========================================
+// ESTADÍSTICAS
+// ========================================
 export async function getStats(req, res) {
   try {
-    const totalIncidents = await Incident.countDocuments()
+    const totalIncidents = await Incident.countDocuments({ flaggedFalse: { $ne: true } })
     const verifiedIncidents = await Incident.countDocuments({ verified: true })
+    const flaggedIncidents = await Incident.countDocuments({ flaggedFalse: true })
     const byType = await Incident.aggregate([
-      { $group: { _id: "$type", count: { $sum: 1 } } }
+      { $match: { flaggedFalse: { $ne: true } } },
+      { $group: { _id: "$type", count: { $sum: 1 } } },
     ])
 
     const stats = {
       total: totalIncidents,
       verified: verifiedIncidents,
-      byType: Object.fromEntries(byType.map(t => [t._id, t.count]))
+      flagged: flaggedIncidents,
+      byType: Object.fromEntries(byType.map((t) => [t._id, t.count])),
     }
 
-    return res.json({ 
-      success: true,
-      data: stats 
-    })
+    return res.json({ success: true, data: stats })
   } catch (error) {
-    return res.status(500).json({ 
-      success: false,
-      message: error.message 
-    })
+    return res.status(500).json({ success: false, message: error.message })
   }
 }
