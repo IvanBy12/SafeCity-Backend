@@ -6,15 +6,31 @@ const IncidentSchema = new mongoose.Schema(
     type: { type: String, required: true, index: true },
     title: { type: String, required: true },
     description: { type: String, default: "" },
-    status: { type: String, default: "pending", index: true },
+    status: { type: String, default: "pending", index: true }, // pending | verified | false_report
     reporterUid: { type: String, required: true, index: true },
     isAnonymous: { type: Boolean, default: false },
     locality: { type: String, index: true },
-    //nuevo mi rey OJO CON ESTO 
     address: { type: String, default: null },
+
+    // ========================================
+    // NUEVO SISTEMA DE VALIDACIÓN COMUNITARIA
+    // ========================================
+    // Usuarios que votaron "es verdadero"
+    votedTrue: { type: [String], default: [] },
+    // Usuarios que votaron "es falso"
+    votedFalse: { type: [String], default: [] },
+    // Score neto = votedTrue.length - votedFalse.length
+    validationScore: { type: Number, default: 0 },
+    // verified = true cuando validationScore >= 3
     verified: { type: Boolean, default: false, index: true },
+    // flagged = true cuando validationScore <= -5
+    flaggedFalse: { type: Boolean, default: false, index: true },
+
+    // Mantener para compatibilidad (ahora = votedTrue.length)
+    confirmationsCount: { type: Number, default: 0 },
+    // Mantener para compatibilidad
     confirmedBy: { type: [String], default: [] },
-    //aca esta lo nuevo
+
     location: {
       type: {
         type: String,
