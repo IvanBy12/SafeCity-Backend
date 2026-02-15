@@ -46,55 +46,119 @@ const IncidentSchema = new mongoose.Schema(
     },
     eventAt: { type: Date, required: true, index: true },
     editableUntil: { type: Date, default: null },
-    confirmationsCount: { type: Number, default: 0 },
     commentsCount: { type: Number, default: 0 },
     photos: { type: Array, default: [] },
-    address: { type: String, default: null },
-    verified: { type: Boolean, default: false, index: true },
-    confirmedBy: { type: [String], default: [] },
   },
   { timestamps: true }
 )
+
 IncidentSchema.index({ location: "2dsphere" })
 
-// 🆕 MÉTODO ESTÁTICO: Buscar cercanos
+// ========================================
+// MÉTODO: Votar como verdadero
+// ========================================
+IncidentSchema.methods.voteTrue = async function (userId) {
+  // No puede votar su propio reporte
+  if (this.reporterUid === userId) {
+    throw new Error("No puedes validar tu propio reporte")
+  }
+  // Ya votó verdadero
+  if (this.votedTrue.includes(userId)) {
+    throw new Error("Ya confirmaste este incidente")
+  }
+  // Si antes votó falso, quitar ese voto primero
+  if (this.votedFalse.includes(userId)) {
+    this.votedFalse = this.votedFalse.filter(uid => uid !== userId)
+  }
+
+  this.votedTrue.push(userId)
+  this._recalculateScore()
+  return this.save()
+}
+
+// ========================================
+// MÉTODO: Votar como falso
+// ========================================
+IncidentSchema.methods.voteFalse = async function (userId) {
+  // No puede votar su propio reporte
+  if (this.reporterUid === userId) {
+    throw new Error("No puedes validar tu propio reporte")
+  }
+  // Ya votó falso
+  if (this.votedFalse.includes(userId)) {
+    throw new Error("Ya reportaste este incidente como falso")
+  }
+  // Si antes votó verdadero, quitar ese voto primero
+  if (this.votedTrue.includes(userId)) {
+    this.votedTrue = this.votedTrue.filter(uid => uid !== userId)
+  }
+
+  this.votedFalse.push(userId)
+  this._recalculateScore()
+  return this.save()
+}
+
+// ========================================
+// MÉTODO: Quitar voto (cualquier dirección)
+// ========================================
+IncidentSchema.methods.removeVote = async function (userId) {
+  const hadVoteTrue = this.votedTrue.includes(userId)
+  const hadVoteFalse = this.votedFalse.includes(userId)
+
+  if (!hadVoteTrue && !hadVoteFalse) {
+    throw new Error("No has votado en este incidente")
+  }
+
+  this.votedTrue = this.votedTrue.filter(uid => uid !== userId)
+  this.votedFalse = this.votedFalse.filter(uid => uid !== userId)
+  this._recalculateScore()
+  return this.save()
+}
+
+// ========================================
+// MÉTODO INTERNO: Recalcular score y estados
+// ========================================
+IncidentSchema.methods._recalculateScore = function () {
+  this.validationScore = this.votedTrue.length - this.votedFalse.length
+
+  // Verificado si score >= 3
+  this.verified = this.validationScore >= 3
+
+  // Marcado como falso si score <= -5
+  this.flaggedFalse = this.validationScore <= -5
+
+  // Si es marcado como falso, cambiar status
+  if (this.flaggedFalse) {
+    this.status = "false_report"
+  } else if (this.verified) {
+    this.status = "verified"
+  } else {
+    this.status = "pending"
+  }
+
+  // Compatibilidad
+  this.confirmationsCount = this.votedTrue.length
+  this.confirmedBy = [...this.votedTrue]
+}
+
+// Buscar cercanos
 IncidentSchema.statics.findNearby = function (longitude, latitude, maxDistanceKm = 5) {
   return this.find({
     location: {
       $near: {
-        $geometry: {
-          type: 'Point',
-          coordinates: [longitude, latitude]
-        },
-        $maxDistance: maxDistanceKm * 1000
-      }
-    }
+        $geometry: { type: "Point", coordinates: [longitude, latitude] },
+        $maxDistance: maxDistanceKm * 1000,
+      },
+    },
   })
 }
 
-
-IncidentSchema.methods.confirmBy = async function (userId) {
-  if (this.confirmedBy.includes(userId)) {
-    throw new Error('Ya confirmaste este incidente')
-  }
-
-  this.confirmedBy.push(userId)
-  this.confirmationsCount = this.confirmedBy.length
-
-  if (this.confirmationsCount >= 3) {
-    this.verified = true
-  }
-
-  return this.save()
-}
-
-// 🆕 VIRTUAL: timestamp
-IncidentSchema.virtual('timestamp').get(function () {
+// Virtual: timestamp
+IncidentSchema.virtual("timestamp").get(function () {
   return this.eventAt ? this.eventAt.getTime() : Date.now()
 })
 
-IncidentSchema.set('toJSON', { virtuals: true })
-IncidentSchema.set('toObject', { virtuals: true })
-
+IncidentSchema.set("toJSON", { virtuals: true })
+IncidentSchema.set("toObject", { virtuals: true })
 
 export default mongoose.model("Incident", IncidentSchema)
