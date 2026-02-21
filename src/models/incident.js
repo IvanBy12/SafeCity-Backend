@@ -6,30 +6,27 @@ const IncidentSchema = new mongoose.Schema(
     type: { type: String, required: true, index: true },
     title: { type: String, required: true },
     description: { type: String, default: "" },
-    status: { type: String, default: "pending", index: true }, // pending | verified | false_report
+    status: { type: String, default: "pending", index: true },
     reporterUid: { type: String, required: true, index: true },
     isAnonymous: { type: Boolean, default: false },
     locality: { type: String, index: true },
     address: { type: String, default: null },
 
     // ========================================
-    // NUEVO SISTEMA DE VALIDACIÓN COMUNITARIA
+    // FOTO DEL INCIDENTE
     // ========================================
-    // Usuarios que votaron "es verdadero"
-    votedTrue: { type: [String], default: [] },
-    // Usuarios que votaron "es falso"
-    votedFalse: { type: [String], default: [] },
-    // Score neto = votedTrue.length - votedFalse.length
-    validationScore: { type: Number, default: 0 },
-    // verified = true cuando validationScore >= 3
-    verified: { type: Boolean, default: false, index: true },
-    // flagged = true cuando validationScore <= -5
-    flaggedFalse: { type: Boolean, default: false, index: true },
+    imageUrl: { type: String, default: null },
 
-    // Mantener para compatibilidad (ahora = votedTrue.length)
-    confirmationsCount: { type: Number, default: 0 },
-    // Mantener para compatibilidad
+    // ========================================
+    // SISTEMA DE VALIDACIÓN
+    // ========================================
+    votedTrue: { type: [String], default: [] },
+    votedFalse: { type: [String], default: [] },
+    validationScore: { type: Number, default: 0 },
+    verified: { type: Boolean, default: false, index: true },
+    flaggedFalse: { type: Boolean, default: false, index: true },
     confirmedBy: { type: [String], default: [] },
+    confirmationsCount: { type: Number, default: 0 },
 
     location: {
       type: {
@@ -47,99 +44,15 @@ const IncidentSchema = new mongoose.Schema(
     eventAt: { type: Date, required: true, index: true },
     editableUntil: { type: Date, default: null },
     commentsCount: { type: Number, default: 0 },
-    photos: { type: Array, default: [] },
+    photos: {
+      type: [{ url: { type: String, required: true } }],
+      default: [],
+    },
   },
   { timestamps: true }
 )
 
 IncidentSchema.index({ location: "2dsphere" })
-
-// ========================================
-// MÉTODO: Votar como verdadero
-// ========================================
-IncidentSchema.methods.voteTrue = async function (userId) {
-  // No puede votar su propio reporte
-  if (this.reporterUid === userId) {
-    throw new Error("No puedes validar tu propio reporte")
-  }
-  // Ya votó verdadero
-  if (this.votedTrue.includes(userId)) {
-    throw new Error("Ya confirmaste este incidente")
-  }
-  // Si antes votó falso, quitar ese voto primero
-  if (this.votedFalse.includes(userId)) {
-    this.votedFalse = this.votedFalse.filter(uid => uid !== userId)
-  }
-
-  this.votedTrue.push(userId)
-  this._recalculateScore()
-  return this.save()
-}
-
-// ========================================
-// MÉTODO: Votar como falso
-// ========================================
-IncidentSchema.methods.voteFalse = async function (userId) {
-  // No puede votar su propio reporte
-  if (this.reporterUid === userId) {
-    throw new Error("No puedes validar tu propio reporte")
-  }
-  // Ya votó falso
-  if (this.votedFalse.includes(userId)) {
-    throw new Error("Ya reportaste este incidente como falso")
-  }
-  // Si antes votó verdadero, quitar ese voto primero
-  if (this.votedTrue.includes(userId)) {
-    this.votedTrue = this.votedTrue.filter(uid => uid !== userId)
-  }
-
-  this.votedFalse.push(userId)
-  this._recalculateScore()
-  return this.save()
-}
-
-// ========================================
-// MÉTODO: Quitar voto (cualquier dirección)
-// ========================================
-IncidentSchema.methods.removeVote = async function (userId) {
-  const hadVoteTrue = this.votedTrue.includes(userId)
-  const hadVoteFalse = this.votedFalse.includes(userId)
-
-  if (!hadVoteTrue && !hadVoteFalse) {
-    throw new Error("No has votado en este incidente")
-  }
-
-  this.votedTrue = this.votedTrue.filter(uid => uid !== userId)
-  this.votedFalse = this.votedFalse.filter(uid => uid !== userId)
-  this._recalculateScore()
-  return this.save()
-}
-
-// ========================================
-// MÉTODO INTERNO: Recalcular score y estados
-// ========================================
-IncidentSchema.methods._recalculateScore = function () {
-  this.validationScore = this.votedTrue.length - this.votedFalse.length
-
-  // Verificado si score >= 3
-  this.verified = this.validationScore >= 3
-
-  // Marcado como falso si score <= -5
-  this.flaggedFalse = this.validationScore <= -5
-
-  // Si es marcado como falso, cambiar status
-  if (this.flaggedFalse) {
-    this.status = "false_report"
-  } else if (this.verified) {
-    this.status = "verified"
-  } else {
-    this.status = "pending"
-  }
-
-  // Compatibilidad
-  this.confirmationsCount = this.votedTrue.length
-  this.confirmedBy = [...this.votedTrue]
-}
 
 // Buscar cercanos
 IncidentSchema.statics.findNearby = function (longitude, latitude, maxDistanceKm = 5) {
@@ -151,6 +64,58 @@ IncidentSchema.statics.findNearby = function (longitude, latitude, maxDistanceKm
       },
     },
   })
+}
+
+// Votar verdadero
+IncidentSchema.methods.voteTrue = async function (userId) {
+  if (this.reporterUid === userId) throw new Error("No puedes validar tu propio reporte")
+  if (this.votedTrue.includes(userId)) throw new Error("Ya confirmaste este incidente")
+  if (this.votedFalse.includes(userId)) {
+    this.votedFalse = this.votedFalse.filter(uid => uid !== userId)
+  }
+  this.votedTrue.push(userId)
+  this._recalculateScore()
+  return this.save()
+}
+
+// Votar falso
+IncidentSchema.methods.voteFalse = async function (userId) {
+  if (this.reporterUid === userId) throw new Error("No puedes validar tu propio reporte")
+  if (this.votedFalse.includes(userId)) throw new Error("Ya reportaste este incidente como falso")
+  if (this.votedTrue.includes(userId)) {
+    this.votedTrue = this.votedTrue.filter(uid => uid !== userId)
+  }
+  this.votedFalse.push(userId)
+  this._recalculateScore()
+  return this.save()
+}
+
+// Quitar voto
+IncidentSchema.methods.removeVote = async function (userId) {
+  const hadTrue = this.votedTrue.includes(userId)
+  const hadFalse = this.votedFalse.includes(userId)
+  if (!hadTrue && !hadFalse) throw new Error("No has votado en este incidente")
+  this.votedTrue = this.votedTrue.filter(uid => uid !== userId)
+  this.votedFalse = this.votedFalse.filter(uid => uid !== userId)
+  this._recalculateScore()
+  return this.save()
+}
+
+// Recalcular
+IncidentSchema.methods._recalculateScore = function () {
+  this.validationScore = this.votedTrue.length - this.votedFalse.length
+  this.verified = this.validationScore >= 3
+  this.flaggedFalse = this.validationScore <= -5
+  if (this.flaggedFalse) this.status = "false_report"
+  else if (this.verified) this.status = "verified"
+  else this.status = "pending"
+  this.confirmationsCount = this.votedTrue.length
+  this.confirmedBy = [...this.votedTrue]
+}
+
+// Compatibilidad
+IncidentSchema.methods.confirmBy = async function (userId) {
+  return this.voteTrue(userId)
 }
 
 // Virtual: timestamp
