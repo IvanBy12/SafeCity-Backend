@@ -13,58 +13,120 @@ function safeReporter(uid, isAnonymous) {
   return isAnonymous ? null : uid
 }
 
-// ========================================
-// CREAR INCIDENTE
-// ========================================
-export async function createIncident(req, res) {
-  const uid = req.user.uid
-  const {
-    categoryGroup, type, title, description, isAnonymous,
-    locality, location, latitude, longitude, address,
-    imageUrl, photos, eventAt,
-  } = req.body
+function normalizePhotosInput(photos, imageUrl) {
+  let raw = [];
 
-  if (!categoryGroup || !type || !title) {
-    return res.status(400).json({ success: false, message: "categoryGroup, type y title son obligatorios" })
-  }
+  // 1) Si viene photos como array, úsalo
+  if (Array.isArray(photos)) raw = photos;
+  // 2) Si viene photos como string, lo convierto a array
+  else if (typeof photos === "string" && photos.trim()) raw = [photos.trim()];
+  // 3) Fallback: si no viene photos, uso imageUrl
+  else if (typeof imageUrl === "string" && imageUrl.trim()) raw = [imageUrl.trim()];
 
-  const eventDate = eventAt ? new Date(eventAt) : new Date()
-  const editableUntil = new Date(eventDate.getTime() + 1000 * 60 * 15)
+  // Normalizar a [{ url: "https://..." }]
+  const normalized = raw
+    .map((p) => {
+      // Si ya viene como string -> {url}
+      if (typeof p === "string") return { url: p.trim() };
 
-  let normalizedLocation = null
-  if (location?.type === "Point" && Array.isArray(location?.coordinates)) {
-    normalizedLocation = location
-  } else if (latitude != null && longitude != null) {
-    normalizedLocation = { type: "Point", coordinates: [Number(longitude), Number(latitude)] }
-  } else if (location?.lat != null && location?.lng != null) {
-    normalizedLocation = { type: "Point", coordinates: [Number(location.lng), Number(location.lat)] }
-  }
+      // Si viene como objeto -> toma url/downloadURL/uri
+      if (p && typeof p === "object") {
+        const url = p.url || p.downloadURL || p.uri;
+        return url ? { url: String(url).trim() } : null;
+      }
 
-  const doc = await Incident.create({
-    categoryGroup, type, title,
-    description: description || "",
-    status: "pending",
-    reporterUid: uid,
-    isAnonymous: !!isAnonymous,
-    locality: locality || null,
-    location: normalizedLocation,
-    address: address || null,
-    photos: Array.isArray(photos) ? photos : [],
-    eventAt: eventDate,
-    editableUntil,
-    // Nuevos campos de validación
-    votedTrue: [],
-    votedFalse: [],
-    validationScore: 0,
-    verified: false,
-    flaggedFalse: false,
-    confirmationsCount: 0,
-    confirmedBy: [],
-    commentsCount: 0,
-  })
+      return null;
+    })
+    // deja solo URLs http/https válidas
+    .filter((p) => p && typeof p.url === "string" && /^https?:\/\/.+/.test(p.url));
 
-  return res.status(201).json({ success: true, data: doc })
+  return normalized;
 }
+
+export async function createIncident(req, res) {
+  try {
+    const uid = req.user.uid;
+    const {
+      categoryGroup, type, title, description, isAnonymous,
+      locality, location, latitude, longitude, address,
+      imageUrl, photos, eventAt,
+    } = req.body;
+
+    if (!categoryGroup || !type || !title) {
+      return res.status(400).json({
+        success: false,
+        message: "categoryGroup, type y title son obligatorios",
+      });
+    }
+
+    const eventDate = eventAt ? new Date(eventAt) : new Date();
+    const editableUntil = new Date(eventDate.getTime() + 1000 * 60 * 15);
+
+    let normalizedLocation = null;
+    if (location?.type === "Point" && Array.isArray(location?.coordinates)) {
+      normalizedLocation = location;
+    } else if (latitude != null && longitude != null) {
+      normalizedLocation = {
+        type: "Point",
+        coordinates: [Number(longitude), Number(latitude)],
+      };
+    } else if (location?.lat != null && location?.lng != null) {
+      normalizedLocation = {
+        type: "Point",
+        coordinates: [Number(location.lng), Number(location.lat)],
+      };
+    }
+
+    // ✅ IMPORTANTE: ahora photos será [{url: "..."}] para cumplir Mongo validator
+    const normalizedPhotos = normalizePhotosInput(photos, imageUrl);
+
+    // ✅ Compatibilidad: imageUrl como string (si lo usas en front)
+    const normalizedImageUrl =
+      (typeof imageUrl === "string" && imageUrl.trim())
+        ? imageUrl.trim()
+        : (normalizedPhotos[0]?.url ?? null);
+
+    const doc = await Incident.create({
+      categoryGroup,
+      type,
+      title,
+      description: description || "",
+      status: "pending",
+      reporterUid: uid,
+      isAnonymous: !!isAnonymous,
+      locality: locality || null,
+      location: normalizedLocation,
+      address: address || null,
+
+      // ✅ ambos guardados
+      imageUrl: normalizedImageUrl,
+      photos: normalizedPhotos,
+
+      eventAt: eventDate,
+      editableUntil,
+
+      votedTrue: [],
+      votedFalse: [],
+      validationScore: 0,
+      verified: false,
+      flaggedFalse: false,
+      confirmationsCount: 0,
+      confirmedBy: [],
+      commentsCount: 0,
+    });
+
+    return res.status(201).json({ success: true, data: doc });
+  } catch (err) {
+    console.error("CREATE INCIDENT ERROR:", err?.message);
+    console.error("DETAILS:", JSON.stringify(err?.errInfo ?? err, null, 2));
+    return res.status(400).json({
+      success: false,
+      message: err?.message,
+      errInfo: err?.errInfo ?? null,
+    });
+  }
+}
+
 
 // ========================================
 // VOTAR COMO VERDADERO (confirmar)
