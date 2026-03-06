@@ -3,9 +3,17 @@ import User from "../models/User.js"
 
 export function initFirebaseAdmin() {
   if (admin.apps.length) return admin
-  admin.initializeApp({ credential: admin.credential.applicationDefault() })
+
+  const credential = admin.credential.cert({
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    // Vercel escapa los \n como \\n en las env vars, hay que revertirlo
+    privateKey: (process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
+  })
+
+  admin.initializeApp({ credential })
   console.log("✅ Firebase Admin inicializado")
-    return admin
+  return admin
 }
 
 export async function requireAuth(req, res, next) {
