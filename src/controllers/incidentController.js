@@ -2,7 +2,7 @@ import mongoose from "mongoose"
 import Incident from "../models/incident.js"
 import IncidentComment from "../models/IncidentComment.js"
 import IncidentValidation from "../models/IncidentValidation.js"
-import { notifyNearbyUsers } from "../services/notificationService.js"
+import { notifyNearbyUsers, notifyNearbyUsersOnVerification } from "../services/notificationService.js"
 
 // ==========================================
 // CONFIGURACIÓN DE ESTADOS
@@ -450,7 +450,13 @@ export async function voteIncidentTrue(req, res) {
     const userId = req.user.uid
     const incident = await Incident.findById(id)
     if (!incident) return res.status(404).json({ success: false, error: "Incidente no encontrado" })
+    const wasVerifiedBefore = incident.verified
     await incident.voteTrue(userId)
+    if (!wasVerifiedBefore && incident.verified) {
+      notifyNearbyUsersOnVerification(incident).catch((e) =>
+        console.error("FCM verificación fire-and-forget error:", e.message)
+      )
+    }
     res.json({
       success: true,
       message: "Voto registrado: verdadero",
