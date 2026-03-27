@@ -4,15 +4,33 @@ import User from "../models/User.js"
 export function initFirebaseAdmin() {
   if (admin.apps.length) return admin
 
-  const credential = admin.credential.cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    // Vercel escapa los \n como \\n en las env vars, hay que revertirlo
-    privateKey: (process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
-  })
+  // ─── Estrategia dual de credenciales ────────────────────────────────────
+  // 1) Producción / Vercel: las tres variables de entorno individuales.
+  // 2) Desarrollo local: GOOGLE_APPLICATION_CREDENTIALS=./serviceAccountKey.json
+  //    (applicationDefault() las lee automáticamente).
+  // Esto evita que FCM falle silenciosamente cuando las vars individuales
+  // no están definidas y el SDK inicializa con projectId/clientEmail undefined.
+  // ─────────────────────────────────────────────────────────────────────────
+  const hasEnvVarCreds =
+    process.env.FIREBASE_PROJECT_ID &&
+    process.env.FIREBASE_CLIENT_EMAIL &&
+    process.env.FIREBASE_PRIVATE_KEY
+
+  const credential = hasEnvVarCreds
+    ? admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        // Vercel escapa los \n como \\n en las env vars, hay que revertirlo
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+      })
+    : admin.credential.applicationDefault()
 
   admin.initializeApp({ credential })
-  console.log("✅ Firebase Admin inicializado")
+  console.log(
+    hasEnvVarCreds
+      ? "✅ Firebase Admin inicializado con credenciales individuales de env vars"
+      : "✅ Firebase Admin inicializado via GOOGLE_APPLICATION_CREDENTIALS"
+  )
   return admin
 }
 
