@@ -4,6 +4,20 @@ import NotificationLog from "../models/NotificationLog.js"
 
 const RADIUS_METERS = 500
 
+function maskToken(token) {
+  if (typeof token !== "string" || token.length < 12) return token || "missing"
+  return `${token.slice(0, 6)}...${token.slice(-6)}`
+}
+
+function serializeError(error) {
+  return {
+    message: error?.message,
+    code: error?.code,
+    stack: error?.stack,
+    errorInfo: error?.errorInfo,
+  }
+}
+
 /**
  * Notifica a usuarios cercanos cuando se crea un nuevo incidente.
  * Llamado de forma fire-and-forget desde createIncident.
@@ -111,7 +125,14 @@ export async function notifyNearbyUsers(incident) {
  * acaba de alcanzar el umbral requerido.
  */
 export async function notifyNearbyUsersOnVerification(incident) {
+  console.log("FCM_VERIFY_ENTER", JSON.stringify({
+    incidentId: incident?._id?.toString?.() ?? String(incident?._id ?? ""),
+    validationScore: incident?.validationScore ?? null,
+    verified: incident?.verified ?? null,
+    status: incident?.status ?? null,
+  }))
   if (!incident.location?.coordinates || incident.location.coordinates.length !== 2) {
+    console.log("FCM_VERIFY_SKIP_NO_COORDS", JSON.stringify({ incidentId: incident?._id?.toString?.() ?? String(incident?._id ?? "") }))
     console.log(`📱 FCM verificación: incidente ${incident._id} sin coordenadas, omitiendo`)
     return
   }
@@ -119,6 +140,18 @@ export async function notifyNearbyUsersOnVerification(incident) {
   const [lng, lat] = incident.location.coordinates
 
   // Validar coordenadas
+  const hasInvalidCoords =
+    typeof lng !== "number" || typeof lat !== "number" ||
+    isNaN(lng) || isNaN(lat) ||
+    lng < -180 || lng > 180 ||
+    lat < -90 || lat > 90
+  if (hasInvalidCoords) {
+    console.warn("FCM_VERIFY_SKIP_INVALID_COORDS", JSON.stringify({
+      incidentId: incident._id.toString(),
+      latitude: lat,
+      longitude: lng,
+    }))
+  }
   if (
     typeof lng !== "number" || typeof lat !== "number" ||
     isNaN(lng) || isNaN(lat) ||
@@ -156,10 +189,27 @@ export async function notifyNearbyUsersOnVerification(incident) {
       .limit(500)
       .lean()
 
+    const rawTokens = nearbyDevices.map((d) => d.fcmToken)
+    const validTokens = rawTokens
+      .filter((token) => typeof token === "string")
+      .map((token) => token.trim())
+      .filter(Boolean)
+
     // Deduplicar tokens (un usuario puede tener varios dispositivos)
     const tokens = [
-      ...new Set(nearbyDevices.map((d) => d.fcmToken).filter(Boolean)),
+      ...new Set(validTokens),
     ]
+
+    console.log("FCM_VERIFY_AUDIENCE", JSON.stringify({
+      incidentId: incident._id.toString(),
+      radiusM: RADIUS_METERS,
+      nearbyDevicesCount: nearbyDevices.length,
+      rawTokenCount: rawTokens.length,
+      validTokenCount: validTokens.length,
+      invalidTokenCount: rawTokens.length - validTokens.length,
+      uniqueTokenCount: tokens.length,
+      duplicateTokenCount: validTokens.length - tokens.length,
+    }))
 
     if (tokens.length === 0) {
       console.log(`📱 FCM verificación: sin dispositivos en ${RADIUS_METERS}m para incidente ${incident._id}`)
@@ -190,7 +240,14 @@ export async function notifyNearbyUsersOnVerification(incident) {
     // Enviar en lotes de hasta 500 tokens (límite de FCM multicast)
     for (let i = 0; i < tokens.length; i += 500) {
       const batch = tokens.slice(i, i + 500)
+      console.log("FCM_VERIFY_SEND_ATTEMPT", JSON.stringify({
+        incidentId: incident._id.toString(),
+        batchStart: i,
+        batchSize: batch.length,
+        tokenPreview: batch.map(maskToken),
+      }))
 
+      let response
       const message = {
         notification: { title, body },
         data: {
@@ -223,7 +280,18 @@ export async function notifyNearbyUsersOnVerification(incident) {
         tokens: batch,
       }
 
-      const response = await admin.messaging().sendEachForMulticast(message)
+      try {
+        response = await admin.messaging().sendEachForMulticast(message)
+      } catch (error) {
+        console.error("FCM_VERIFY_FIREBASE_ERROR", JSON.stringify({
+          incidentId: incident._id.toString(),
+          batchStart: i,
+          batchSize: batch.length,
+          tokenPreview: batch.map(maskToken),
+          ...serializeError(error),
+        }))
+        throw error
+      }
       totalSuccess += response.successCount
       totalFail += response.failureCount
 
@@ -238,9 +306,34 @@ export async function notifyNearbyUsersOnVerification(incident) {
             .catch(() => {})
         }
       })
+      const failedResponses = response.responses
+        .map((r, idx) => ({ response: r, token: batch[idx] }))
+        .filter(({ response }) => !response.success)
+        .map(({ response, token }) => ({
+          token: maskToken(token),
+          code: response.error?.code ?? null,
+          message: response.error?.message ?? null,
+          stack: response.error?.stack ?? null,
+          errorInfo: response.error?.errorInfo ?? null,
+        }))
+      console.log("FCM_VERIFY_SEND_RESULT", JSON.stringify({
+        incidentId: incident._id.toString(),
+        batchStart: i,
+        batchSize: batch.length,
+        successCount: response.successCount,
+        failureCount: response.failureCount,
+        failures: failedResponses,
+      }))
     }
 
     // Registrar en log para evitar envíos duplicados si el reporte se re-evalúa
+    console.log("FCM_VERIFY_COMPLETE", JSON.stringify({
+      incidentId: incident._id.toString(),
+      totalSuccess,
+      totalFail,
+      uniqueTokenCount: tokens.length,
+      radiusM: RADIUS_METERS,
+    }))
     await NotificationLog.create({
       incidentId: incident._id,
       targetUid: "bulk_verified",

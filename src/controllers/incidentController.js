@@ -448,14 +448,40 @@ export async function voteIncidentTrue(req, res) {
   try {
     const { id } = req.params
     const userId = req.user.uid
+    console.log("INCIDENT_VOTE_TRUE_RECEIVED", JSON.stringify({ incidentId: id, voterUid: userId }))
     const incident = await Incident.findById(id)
     if (!incident) return res.status(404).json({ success: false, error: "Incidente no encontrado" })
     const wasVerifiedBefore = incident.verified
     await incident.voteTrue(userId)
+    console.log("INCIDENT_VOTE_TRUE_RESULT", JSON.stringify({
+      incidentId: incident._id.toString(),
+      voterUid: userId,
+      wasVerifiedBefore,
+      verifiedAfter: incident.verified,
+      validationScore: incident.validationScore,
+      status: incident.status,
+      votedTrueCount: incident.votedTrue.length,
+      votedFalseCount: incident.votedFalse.length,
+    }))
     if (!wasVerifiedBefore && incident.verified) {
+      console.log("FCM_VERIFY_TRIGGER_DISPATCH", JSON.stringify({
+        incidentId: incident._id.toString(),
+        validationScore: incident.validationScore,
+        verified: incident.verified,
+        status: incident.status,
+      }))
       notifyNearbyUsersOnVerification(incident).catch((e) =>
+        console.error("FCM_VERIFY_TRIGGER_ERROR", JSON.stringify({ incidentId: incident._id.toString(), message: e?.message, code: e?.code, stack: e?.stack })),
         console.error("FCM verificación fire-and-forget error:", e.message)
       )
+    } else {
+      console.log("FCM_VERIFY_TRIGGER_SKIPPED", JSON.stringify({
+        incidentId: incident._id.toString(),
+        wasVerifiedBefore,
+        verifiedAfter: incident.verified,
+        validationScore: incident.validationScore,
+        status: incident.status,
+      }))
     }
     res.json({
       success: true,
