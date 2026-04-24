@@ -470,10 +470,10 @@ export async function voteIncidentTrue(req, res) {
         verified: incident.verified,
         status: incident.status,
       }))
-      notifyNearbyUsersOnVerification(incident).catch((e) =>
-        console.error("FCM_VERIFY_TRIGGER_ERROR", JSON.stringify({ incidentId: incident._id.toString(), message: e?.message, code: e?.code, stack: e?.stack })),
+      notifyNearbyUsersOnVerification(incident).catch((e) => {
+        console.error("FCM_VERIFY_TRIGGER_ERROR", JSON.stringify({ incidentId: incident._id.toString(), message: e?.message, code: e?.code, stack: e?.stack }))
         console.error("FCM verificación fire-and-forget error:", e.message)
-      )
+      })
     } else {
       console.log("FCM_VERIFY_TRIGGER_SKIPPED", JSON.stringify({
         incidentId: incident._id.toString(),
