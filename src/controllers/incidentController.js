@@ -2,7 +2,7 @@ import mongoose from "mongoose"
 import Incident from "../models/incident.js"
 import IncidentComment from "../models/IncidentComment.js"
 import IncidentValidation from "../models/IncidentValidation.js"
-import { notifyNearbyUsers, notifyNearbyUsersOnVerification } from "../services/notificationService.js"
+import { notifyNearbyUsersOnVerification } from "../services/notificationService.js"
 
 // ==========================================
 // CONFIGURACIÓN DE ESTADOS
@@ -144,9 +144,8 @@ export async function createIncident(req, res) {
       commentsCount: 0,
     })
 
-    notifyNearbyUsers(doc).catch((e) =>
-      console.error("FCM fire-and-forget error:", e.message)
-    )
+    // Las notificaciones FCM solo se envían cuando el reporte es VERIFICADO
+    // (validationScore >= 3), no al crearlo. Ver voteIncidentTrue().
 
     return res.status(201).json({ success: true, data: doc })
   } catch (err) {
