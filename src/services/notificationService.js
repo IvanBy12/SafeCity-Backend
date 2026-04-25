@@ -94,11 +94,28 @@ export async function notifyNearbyUsers(incident) {
         tokens: batch,
       }
 
-      const response = await admin.messaging().sendEachForMulticast(message)
+      let response
+      try {
+        response = await admin.messaging().sendEachForMulticast(message)
+      } catch (fcmError) {
+        console.error("FCM_NEW_FIREBASE_ERROR", JSON.stringify({
+          ...serializeError(fcmError),
+          batchSize: batch.length,
+          tokenPreview: batch.map(maskToken),
+        }))
+        throw fcmError
+      }
       totalSuccess += response.successCount
       totalFail += response.failureCount
 
       response.responses.forEach((r, idx) => {
+        if (!r.success) {
+          console.warn("FCM_NEW_TOKEN_FAIL", JSON.stringify({
+            token: maskToken(batch[idx]),
+            code: r.error?.code,
+            message: r.error?.message,
+          }))
+        }
         if (
           !r.success &&
           (r.error?.code === "messaging/invalid-registration-token" ||
@@ -114,7 +131,7 @@ export async function notifyNearbyUsers(incident) {
       `📱 FCM nuevo incidente: ${totalSuccess}✓ ${totalFail}✗ de ${tokens.length} dispositivos en ${RADIUS_METERS}m`
     )
   } catch (error) {
-    console.error("❌ Error notificaciones FCM nuevo incidente:", error.message)
+    console.error("❌ Error notificaciones FCM nuevo incidente:", JSON.stringify(serializeError(error)))
   }
 }
 

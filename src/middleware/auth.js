@@ -26,10 +26,22 @@ export function initFirebaseAdmin() {
     : admin.credential.applicationDefault()
 
   admin.initializeApp({ credential })
+
+  // ─── Diagnóstico de credenciales FCM ─────────────────────────────────
+  console.log("FIREBASE_ADMIN_INIT", JSON.stringify({
+    method: hasEnvVarCreds ? "env_vars" : "application_default",
+    projectId: process.env.FIREBASE_PROJECT_ID || "NOT_SET",
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL
+      ? process.env.FIREBASE_CLIENT_EMAIL.substring(0, 15) + "..."
+      : "NOT_SET",
+    privateKeyPresent: !!process.env.FIREBASE_PRIVATE_KEY,
+    privateKeyLength: process.env.FIREBASE_PRIVATE_KEY?.length || 0,
+    googleAppCreds: process.env.GOOGLE_APPLICATION_CREDENTIALS || "NOT_SET",
+  }))
   console.log(
     hasEnvVarCreds
       ? "✅ Firebase Admin inicializado con credenciales individuales de env vars"
-      : "✅ Firebase Admin inicializado via GOOGLE_APPLICATION_CREDENTIALS"
+      : "⚠️ Firebase Admin inicializado via GOOGLE_APPLICATION_CREDENTIALS (NO funciona en Vercel si el archivo no existe)"
   )
   return admin
 }
