@@ -8,9 +8,13 @@ const router = express.Router()
 // ==========================================
 // GET /admin/fcm-diagnostics
 // Endpoint temporal para diagnosticar FCM.
-// Requiere auth + admin. Eliminar después de validar.
+// ⚠️ TEMPORAL: sin auth, protegido solo por query param secret.
+// ELIMINAR después de validar o cambiar a requireAuth+requireAdmin.
 // ==========================================
-router.get("/fcm-diagnostics", requireAuth, requireAdmin, async (req, res) => {
+router.get("/fcm-diagnostics", async (req, res) => {
+  if (req.query.secret !== "safecity-diag-2026") {
+    return res.status(403).json({ message: "Acceso denegado" })
+  }
   const diagnostics = {
     timestamp: new Date().toISOString(),
     steps: [],
